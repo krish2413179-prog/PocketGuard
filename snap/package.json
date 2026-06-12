@@ -1,0 +1,26 @@
+{
+  "name": "pocketguard-snap",
+  "version": "1.0.0",
+  "description": "PocketGuard MetaMask Snap — blocks transactions to betting/gambling contracts",
+  "main": "dist/bundle.js",
+  "scripts": {
+    "build": "mm-snap build",
+    "serve": "node serve.js",
+    "eval": "mm-snap eval",
+    "manifest": "mm-snap manifest"
+  },
+  "dependencies": {
+    "@metamask/snaps-sdk": "^6.0.0",
+    "prettier": "^3.8.4"
+  },
+  "devDependencies": {
+    "@metamask/snaps-cli": "^6.0.0",
+    "typescript": "^5.0.0"
+  },
+  "snap": {
+    "bundle": {
+      "input": "src/index.ts",
+      "output": "dist/bundle.js"
+    }
+  }
+}
