@@ -1,11 +1,14 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useAppStore } from '../../store/useAppStore';
-import { parseEther } from 'viem';
+import { parseEther, formatEther, createPublicClient, http } from 'viem';
+import { arbitrumSepolia } from 'viem/chains';
 import { CONTRACTS } from '../../lib/contracts/addresses';
 import { relayTransaction } from '../../lib/oneshot/relayer';
 import { installSnap, getSnapStatus, type SnapInstallStatus } from '../../lib/snap/install';
+
+const publicClient = createPublicClient({ chain: arbitrumSepolia, transport: http(CONTRACTS.rpc) });
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-xl ${className}`} style={{ background: '#111111', border: '1px solid #27272a' }}>{children}</div>;
@@ -19,8 +22,17 @@ function Input({ ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
 
 export default function KidPage() {
   const { child, permissions, transactions, addTransaction, pennyMessages, addPennyMessage, pendingRequests, addPendingRequest } = useAppStore();
-  const [balance] = useState('0.005');
+  const [balance, setBalance] = useState('0');
   const [ethPrice, setEthPrice] = useState(3000);
+
+  const fetchBalance = useCallback(async (addr: string) => {
+    try {
+      const bal = await publicClient.getBalance({ address: addr as `0x${string}` });
+      setBalance(parseFloat(formatEther(bal)).toFixed(4));
+    } catch {
+      setBalance('0');
+    }
+  }, []);
   const [spendAmount, setSpendAmount] = useState('');
   const [spendAddress, setSpendAddress] = useState('');
   const [spendToken, setSpendToken] = useState('ETH');
@@ -38,6 +50,12 @@ export default function KidPage() {
       .then(r => r.json()).then(d => { if (d.ethereum?.usd) setEthPrice(d.ethereum.usd); }).catch(() => {});
     getSnapStatus().then(setSnapStatus);
   }, []);
+
+  useEffect(() => {
+    if (child?.smartAccountAddress) {
+      fetchBalance(child.smartAccountAddress);
+    }
+  }, [child?.smartAccountAddress, fetchBalance]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [pennyMessages, pennyTyping]);
 
@@ -66,6 +84,7 @@ export default function KidPage() {
       const result = await relayTransaction({ to: spendAddress.trim() || CONTRACTS.WETH, data: '0x', value: parseEther(spendAmount).toString(), permissionContext: perm.permissionContext, smartAccountAddress: child.smartAccountAddress, permissionId: perm.permissionId });
       addTransaction({ id: `tx_${Date.now()}`, txHash: result.txHash, explorerUrl: result.explorerUrl, type: 'send', description: `Sent ${spendAmount} ${spendToken}`, amount: spendAmount, token: spendToken, status: 'success', timestamp: Date.now(), smartAccountAddress: child.smartAccountAddress });
       setNotice({ text: `Sent ${spendAmount} ${spendToken} — no gas fees paid.`, type: 'success' }); setSpendAmount(''); setSpendAddress('');
+      if (child.smartAccountAddress) fetchBalance(child.smartAccountAddress);
     } catch (err: any) { setNotice({ text: err.message, type: 'error' }); } finally { setSubmitting(false); }
   };
 
