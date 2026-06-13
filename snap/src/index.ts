@@ -45,7 +45,20 @@ export const onTransaction: OnTransactionHandler = async ({ transaction, transac
   }
 
   // Fetch the live blacklist from PocketGuard (falls back to defaults if offline)
-  const blacklist = await fetchLiveBlacklist(POCKETGUARD_APP_URL);
+  let blacklist = DEFAULT_BLACKLIST;
+  try {
+    const localRes = await fetch('http://localhost:3000/api/snap-blacklist');
+    if (localRes.ok) {
+      const data = await localRes.json() as { blacklist: string[] };
+      if (Array.isArray(data.blacklist)) {
+        blacklist = Array.from(new Set([...DEFAULT_BLACKLIST, ...data.blacklist.map(a => a.toLowerCase())]));
+      }
+    } else {
+      throw new Error('Local offline');
+    }
+  } catch {
+    blacklist = await fetchLiveBlacklist(POCKETGUARD_APP_URL);
+  }
 
   const isBlocked = blacklist.includes(toAddress);
 
@@ -75,10 +88,28 @@ export const onTransaction: OnTransactionHandler = async ({ transaction, transac
   }
 
   // Address is safe — show a brief safety confirmation
-  const isSafe = [
+  let isSafe = [
     '0x980b62da83eff3d4576c647993b0c1d7faf17c73', // WETH
     '0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d', // USDC
   ].includes(toAddress);
+
+  if (!isSafe) {
+    const urls = ['http://localhost:3000', POCKETGUARD_APP_URL];
+    for (const url of urls) {
+      try {
+        const response = await fetch(`${url}/api/verify-address?address=${toAddress}`);
+        if (response.ok) {
+          const data = await response.json() as { isSafe: boolean };
+          if (data.isSafe) {
+            isSafe = true;
+            break;
+          }
+        }
+      } catch {
+        // Continue to next URL
+      }
+    }
+  }
 
   if (isSafe) {
     return {
