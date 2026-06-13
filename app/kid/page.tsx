@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, type ApprovalRequest } from '../../store/useAppStore';
 import { parseEther, formatEther, createPublicClient, http } from 'viem';
 import { arbitrumSepolia } from 'viem/chains';
 import { CONTRACTS } from '../../lib/contracts/addresses';
@@ -21,7 +21,7 @@ function Input({ ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
 }
 
 export default function KidPage() {
-  const { child, permissions, transactions, addTransaction, pennyMessages, addPennyMessage, pendingRequests, addPendingRequest } = useAppStore();
+  const { child, permissions, transactions, addTransaction, pennyMessages, addPennyMessage, pendingRequests, addPendingRequest, setPendingRequests, setTransactions, setPermissions } = useAppStore();
   const [balance, setBalance] = useState('0');
   const [ethPrice, setEthPrice] = useState(3000);
 
@@ -88,11 +88,63 @@ export default function KidPage() {
     } catch (err: any) { setNotice({ text: err.message, type: 'error' }); } finally { setSubmitting(false); }
   };
 
-  const handleRequestApproval = () => {
+  const handleRequestApproval = async () => {
     if (!child) return;
-    addPendingRequest({ id: `req_${Date.now()}`, to: spendAddress.trim() || CONTRACTS.WETH, amount: spendAmount, token: spendToken, status: 'pending', description: `Spend ${spendAmount} ${spendToken} at ${spendAddress.trim() ? spendAddress.trim().slice(0, 12) + '...' : 'address'}`, timestamp: Date.now() });
+    const newRequest: ApprovalRequest = { id: `req_${Date.now()}`, to: spendAddress.trim() || CONTRACTS.WETH, amount: spendAmount, token: spendToken, status: 'pending', description: `Spend ${spendAmount} ${spendToken} at ${spendAddress.trim() ? spendAddress.trim().slice(0, 12) + '...' : 'address'}`, timestamp: Date.now() };
+    addPendingRequest(newRequest);
+
+    // Sync the new request directly to the server so the parent dashboard sees it
+    try {
+      const updatedRequests = [newRequest, ...pendingRequests];
+      await fetch('/api/family', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          parentAddress: child.parentAddress,
+          familyPin: child.familyPin,
+          updates: {
+            pendingRequests: updatedRequests
+          }
+        })
+      });
+    } catch (err) {
+      console.error('Failed to sync pending request to server:', err);
+    }
+
     setNotice({ text: 'Approval request sent to your parents.', type: 'success' }); setShowRequest(false); setSpendAmount(''); setSpendAddress('');
   };
+
+  // Poll family config from server to get updated request status/allowance from parent
+  useEffect(() => {
+    if (!child?.familyPin || !child?.parentAddress) return;
+
+    const fetchFamilyConfig = async () => {
+      try {
+        const res = await fetch(`/api/family?parentAddress=${encodeURIComponent(child.parentAddress)}&pin=${encodeURIComponent(child.familyPin)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.config) {
+            if (data.config.pendingRequests) {
+              setPendingRequests(data.config.pendingRequests);
+            }
+            if (data.config.transactions) {
+              setTransactions(data.config.transactions);
+            }
+            if (data.config.permissions) {
+              setPermissions(data.config.permissions);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch family config:', err);
+      }
+    };
+
+    fetchFamilyConfig();
+    const interval = setInterval(fetchFamilyConfig, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, [child?.familyPin, child?.parentAddress, setPendingRequests, setTransactions, setPermissions]);
 
   const handlePennySend = async () => {
     if (!pennyInput.trim() || pennyTyping) return;
