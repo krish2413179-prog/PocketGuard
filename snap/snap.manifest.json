@@ -3,7 +3,7 @@
   "description": "PocketGuard Safety Snap — protects kids by blocking transactions to gambling and betting smart contracts.",
   "proposedName": "PocketGuard Safety",
   "source": {
-    "shasum": "EA86mO7AuZ4LbKAcgg9hOI+UFkyxpH1YzFjZQ3L4kmY=",
+    "shasum": "/uYdh7HiPKjECagVpbrsnBXZzlkm6FhEACBq5PQbFCQ=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",

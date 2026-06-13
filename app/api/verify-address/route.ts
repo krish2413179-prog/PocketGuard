@@ -19,6 +19,7 @@ function readStore(): Record<string, any> {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const address = searchParams.get('address')?.toLowerCase().trim();
+  const parent = searchParams.get('parent')?.toLowerCase().trim();
 
   if (!address) {
     return NextResponse.json({ error: 'Address is required' }, { status: 400 });
@@ -30,6 +31,12 @@ export async function GET(req: NextRequest) {
   // Search if the address is a registered child's smart account address or in their whitelist
   for (const key of Object.keys(store)) {
     const config = store[key];
+
+    // If parent parameter is provided, restrict to configs owned by this parent
+    if (parent && config?.parentAddress?.toLowerCase() !== parent) {
+      continue;
+    }
+
     if (config?.smartAccountAddress?.toLowerCase() === address) {
       isSafe = true;
       break;

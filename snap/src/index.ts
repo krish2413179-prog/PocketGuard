@@ -38,6 +38,7 @@ export const onInstall: OnInstallHandler = async () => {
  */
 export const onTransaction: OnTransactionHandler = async ({ transaction, transactionOrigin }) => {
   const toAddress = (transaction.to as string | undefined)?.toLowerCase();
+  const fromAddress = (transaction.from as string | undefined)?.toLowerCase() || '';
 
   if (!toAddress) {
     // Contract deployment — not a concern for kid spending
@@ -97,7 +98,7 @@ export const onTransaction: OnTransactionHandler = async ({ transaction, transac
     const urls = ['http://localhost:3000', POCKETGUARD_APP_URL];
     for (const url of urls) {
       try {
-        const response = await fetch(`${url}/api/verify-address?address=${toAddress}`);
+        const response = await fetch(`${url}/api/verify-address?address=${toAddress}&parent=${fromAddress}`);
         if (response.ok) {
           const data = await response.json() as { isSafe: boolean };
           if (data.isSafe) {
