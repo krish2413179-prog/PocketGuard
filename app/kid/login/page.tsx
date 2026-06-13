@@ -12,7 +12,7 @@ import { useAppStore } from '../../../store/useAppStore';
  */
 export default function KidLoginPage() {
   const router = useRouter();
-  const { setChild, addPermission, permissions } = useAppStore();
+  const { setChild, addPermission, permissions, setPendingRequests, setTransactions } = useAppStore();
 
   const [parentAddr, setParentAddr] = useState('');
   const [pin, setPin] = useState('');
@@ -45,6 +45,12 @@ export default function KidLoginPage() {
       setChild(config);
       if (config.permissions?.length && permissions.length === 0) {
         config.permissions.forEach((p: any) => addPermission(p));
+      }
+      if (config.pendingRequests) {
+        setPendingRequests(config.pendingRequests);
+      }
+      if (config.transactions) {
+        setTransactions(config.transactions);
       }
 
       router.push('/kid');

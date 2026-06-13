@@ -31,7 +31,7 @@ function Input({ ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
 // Badge imported from components/ui/badge
 
 export default function DashboardPage() {
-  const { wallet, setWallet, child, setChild, updateChild, permissions, addPermission, revokePermission, transactions, addTransaction, pendingRequests, updatePendingRequest } = useAppStore();
+  const { wallet, setWallet, child, setChild, updateChild, permissions, addPermission, revokePermission, transactions, addTransaction, pendingRequests, updatePendingRequest, setPendingRequests, setTransactions } = useAppStore();
   const [balance, setBalance] = useState('0');
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export default function DashboardPage() {
   // ── Server sync ────────────────────────────────────────────────────────────
   // Every time child config changes, push the latest state to /api/family
   // so the kid can authenticate from any device using parent address + PIN.
-  const syncFamilyToServer = useCallback(async (childData: typeof child, permsData: typeof permissions) => {
+  const syncFamilyToServer = useCallback(async (childData: typeof child, permsData: typeof permissions, pendingReqs: typeof pendingRequests, txs: typeof transactions) => {
     if (!childData?.familyPin) return;
     // Use parentAddress from child record, fall back to currently connected wallet
     const parentAddr = childData.parentAddress || wallet.eoaAddress;
@@ -75,18 +75,48 @@ export default function DashboardPage() {
           familyPin: childData.familyPin,
           childConfig: { ...childData, parentAddress: parentAddr },
           permissions: permsData,
-          transactions: [],
+          transactions: txs,
+          pendingRequests: pendingReqs,
         }),
       });
     } catch { /* non-critical */ }
   }, [wallet.eoaAddress]);
 
-  // Auto-sync whenever child or permissions change
+  // Auto-sync whenever child, permissions, pendingRequests or transactions change
   useEffect(() => {
     if (child?.familyPin && child?.parentAddress) {
-      syncFamilyToServer(child, permissions);
+      syncFamilyToServer(child, permissions, pendingRequests, transactions);
     }
-  }, [child, permissions, syncFamilyToServer]);
+  }, [child, permissions, pendingRequests, transactions, syncFamilyToServer]);
+
+  // Poll/fetch family config from server to get new pending requests/transactions from kid
+  useEffect(() => {
+    if (!wallet.isConnected || !child?.familyPin || !child?.parentAddress) return;
+
+    const fetchFamilyConfig = async () => {
+      try {
+        const res = await fetch(`/api/family?parentAddress=${encodeURIComponent(child.parentAddress!)}&pin=${encodeURIComponent(child.familyPin!)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.config) {
+            // Update local store with any new/updated pending requests or transactions from server
+            if (data.config.pendingRequests) {
+              setPendingRequests(data.config.pendingRequests);
+            }
+            if (data.config.transactions) {
+              setTransactions(data.config.transactions);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch family config:', err);
+      }
+    };
+
+    fetchFamilyConfig();
+    const interval = setInterval(fetchFamilyConfig, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, [wallet.isConnected, child?.familyPin, child?.parentAddress, setPendingRequests, setTransactions]);
 
   const fetchBalance = useCallback(async (addr: string) => {
     try { const bal = await publicClient.getBalance({ address: addr as `0x${string}` }); setBalance(parseFloat(formatEther(bal)).toFixed(4)); }

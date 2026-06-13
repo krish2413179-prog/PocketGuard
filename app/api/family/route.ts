@@ -51,12 +51,18 @@ export async function POST(req: NextRequest) {
     const store = readStore();
 
     if (body.action === 'save') {
-      const { parentAddress, familyPin, childConfig, permissions, transactions } = body;
+      const { parentAddress, familyPin, childConfig, permissions, transactions, pendingRequests } = body;
       if (!parentAddress || !familyPin || !childConfig) {
         return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
       }
       const key = makeKey(parentAddress, familyPin);
-      store[key] = { ...childConfig, permissions: permissions || [], transactions: transactions || [], savedAt: Date.now() };
+      store[key] = {
+        ...childConfig,
+        permissions: permissions || store[key]?.permissions || [],
+        transactions: transactions || store[key]?.transactions || [],
+        pendingRequests: pendingRequests || store[key]?.pendingRequests || [],
+        savedAt: Date.now()
+      };
       writeStore(store);
       return NextResponse.json({ success: true });
     }

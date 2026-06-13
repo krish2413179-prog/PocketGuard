@@ -49,6 +49,7 @@ interface AppStore {
   addPermission: (p: PermissionGrant) => void;
   revokePermission: (id: string) => void;
   updatePermissionUsage: (id: string, usedWei: string) => void;
+  setPermissions: (permissions: PermissionGrant[]) => void;
 
   // Child State
   child: ChildState | null;
@@ -64,11 +65,13 @@ interface AppStore {
   transactions: Transaction[];
   addTransaction: (t: Transaction) => void;
   updateTransaction: (id: string, updates: Partial<Transaction>) => void;
+  setTransactions: (txs: Transaction[]) => void;
 
   // Parent Approvals Request Queue
   pendingRequests: ApprovalRequest[];
   addPendingRequest: (r: ApprovalRequest) => void;
   updatePendingRequest: (id: string, status: 'approved' | 'rejected') => void;
+  setPendingRequests: (requests: ApprovalRequest[]) => void;
 }
 
 const defaultWallet: WalletState = {
@@ -99,6 +102,7 @@ export const useAppStore = create<AppStore>()(
         permissions: s.permissions.map((p) => p.permissionId === id ? { ...p, usedAllowanceWei: usedWei } : p),
         activePermission: s.activePermission?.permissionId === id ? { ...s.activePermission, usedAllowanceWei: usedWei } : s.activePermission,
       })),
+      setPermissions: (permissions) => set({ permissions }),
 
       child: null,
       setChild: (c) => set({ child: c }),
@@ -115,12 +119,14 @@ export const useAppStore = create<AppStore>()(
       updateTransaction: (id, updates) => set((s) => ({
         transactions: s.transactions.map((t) => t.id === id ? { ...t, ...updates } : t),
       })),
+      setTransactions: (txs) => set({ transactions: txs }),
 
       pendingRequests: [],
       addPendingRequest: (r) => set((s) => ({ pendingRequests: [r, ...s.pendingRequests] })),
       updatePendingRequest: (id, status) => set((s) => ({
         pendingRequests: s.pendingRequests.map((r) => r.id === id ? { ...r, status } : r),
       })),
+      setPendingRequests: (requests) => set({ pendingRequests: requests }),
     }),
     {
       name: 'pocketguard-store',
