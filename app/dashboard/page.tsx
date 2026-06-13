@@ -60,22 +60,25 @@ export default function DashboardPage() {
   // Every time child config changes, push the latest state to /api/family
   // so the kid can authenticate from any device using parent address + PIN.
   const syncFamilyToServer = useCallback(async (childData: typeof child, permsData: typeof permissions) => {
-    if (!childData?.familyPin || !childData?.parentAddress) return;
+    if (!childData?.familyPin) return;
+    // Use parentAddress from child record, fall back to currently connected wallet
+    const parentAddr = childData.parentAddress || wallet.eoaAddress;
+    if (!parentAddr) return;
     try {
       await fetch('/api/family', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'save',
-          parentAddress: childData.parentAddress,
+          parentAddress: parentAddr,
           familyPin: childData.familyPin,
-          childConfig: childData,
+          childConfig: { ...childData, parentAddress: parentAddr },
           permissions: permsData,
           transactions: [],
         }),
       });
-    } catch { /* non-critical — local state is primary */ }
-  }, []);
+    } catch { /* non-critical */ }
+  }, [wallet.eoaAddress]);
 
   // Auto-sync whenever child or permissions change
   useEffect(() => {

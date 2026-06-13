@@ -4,7 +4,7 @@ import { DEFAULT_BLACKLIST, BLOCKED_CATEGORIES, fetchLiveBlacklist } from './bla
 
 // The PocketGuard app URL — snap will fetch the live blacklist from here.
 // In production this would be your deployed domain.
-const POCKETGUARD_APP_URL = 'http://localhost:3000';
+const POCKETGUARD_APP_URL = 'https://pocketguard-e096.onrender.com';
 
 /**
  * onInstall — runs once when the snap is installed.
