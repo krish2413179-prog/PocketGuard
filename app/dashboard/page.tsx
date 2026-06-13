@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [snapStatus, setSnapStatus] = useState<SnapInstallStatus>('not_installed');
   const [snapInstalling, setSnapInstalling] = useState(false);
   const [snapSyncing, setSnapSyncing] = useState(false);
+  const [funding, setFunding] = useState(false);
 
   useEffect(() => {
     fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
@@ -149,6 +150,29 @@ export default function DashboardPage() {
     else { const capWei = parseEther((child.weeklyAllowanceUSD / ethPrice).toFixed(6)).toString(); const dailyWei = parseEther((child.dailyLimitUSD / ethPrice).toFixed(6)).toString(); addPermission({ permissionId: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, token: '0x0000000000000000000000000000000000000000', tokenSymbol: 'ETH', spendingCapWei: capWei, dailyLimitWei: dailyWei, usedAllowanceWei: '0', expiryTimestamp: Math.floor(Date.now() / 1000) + 604800, allowedTargets: child.whitelist, description: `PocketGuard — ${child.name}`, permissionContext: `0xdemo_${Date.now().toString(16)}`, smartAccountAddress: child.smartAccountAddress, createdAt: Date.now(), isRevoked: false }); }
   };
 
+  const handleFundChild = async () => {
+    if (!wallet.isConnected || !child || !window.ethereum) return;
+    setFunding(true);
+    try {
+      const wc = createWalletClient({
+        account: wallet.eoaAddress as `0x${string}`,
+        chain: arbitrumSepolia,
+        transport: custom(window.ethereum)
+      });
+      const hash = await wc.sendTransaction({
+        to: child.smartAccountAddress as `0x${string}`,
+        value: parseEther('0.01'),
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      await fetchBalance(child.smartAccountAddress);
+      alert('Successfully funded child wallet with 0.01 ETH!');
+    } catch (err: any) {
+      alert(err.message || 'Funding failed');
+    } finally {
+      setFunding(false);
+    }
+  };
+
   const handleAddWhitelist = () => { if (!child || !newWhitelistAddr.trim()) return; updateChild({ whitelist: [...child.whitelist, newWhitelistAddr.trim()] }); setNewWhitelistAddr(''); };
   const handleAddBlacklist = (address: string) => { if (!child || !address.trim() || child.blacklist.includes(address.trim())) return; const updated = [...child.blacklist, address.trim()]; updateChild({ blacklist: updated }); syncBlacklistToSnap(updated); setNewBlacklistAddr(''); };
   const handleRemoveBlacklist = (address: string) => { if (!child) return; const updated = child.blacklist.filter(a => a !== address); updateChild({ blacklist: updated }); syncBlacklistToSnap(updated); };
@@ -223,7 +247,12 @@ export default function DashboardPage() {
                   <div className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>{child.name}'s wallet</div>
                   <div className="text-xs font-mono mt-0.5" style={{ color: '#52525b' }}>{child.smartAccountAddress.slice(0, 20)}...</div>
                 </div>
-                <Button variant={child.isPaused ? 'secondary' : 'destructive'} onClick={handleTogglePause} size="sm">{child.isPaused ? 'Resume wallet' : 'Pause wallet'}</Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleFundChild} size="sm" disabled={funding}>
+                    {funding ? 'Funding...' : 'Fund 0.01 ETH'}
+                  </Button>
+                  <Button variant={child.isPaused ? 'secondary' : 'destructive'} onClick={handleTogglePause} size="sm">{child.isPaused ? 'Resume wallet' : 'Pause wallet'}</Button>
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-4 pt-4" style={{ borderTop: '1px solid #18181b' }}>
                 <div><div className="text-xs mb-1" style={{ color: '#52525b' }}>Balance</div><div className="text-lg font-semibold" style={{ color: '#e2e8f0' }}>${balanceUSD}</div><div className="text-xs" style={{ color: '#52525b' }}>{balance} ETH</div></div>
