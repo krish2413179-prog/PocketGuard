@@ -22,7 +22,7 @@ export interface ApprovalRequest {
   to: string;
   amount: string;
   token: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'executed';
   description: string;
   timestamp: number;
 }

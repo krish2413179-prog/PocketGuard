@@ -117,6 +117,63 @@ export default function KidPage() {
     setNotice({ text: 'Approval request sent to your parents.', type: 'success' }); setShowRequest(false); setSpendAmount(''); setSpendAddress('');
   };
 
+  const handleExecuteRequest = async (req: ApprovalRequest) => {
+    if (!child) return;
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      const perm = permissions.find(p => !p.isRevoked && p.smartAccountAddress === child.smartAccountAddress);
+      if (!perm) throw new Error('No active permission found. Ask your parents to renew your allowance.');
+      
+      const result = await relayTransaction({
+        to: req.to || CONTRACTS.WETH,
+        data: '0x',
+        value: parseEther(req.amount).toString(),
+        permissionContext: perm.permissionContext,
+        smartAccountAddress: child.smartAccountAddress,
+        permissionId: perm.permissionId
+      });
+      
+      const updatedRequests = pendingRequests.map(r => r.id === req.id ? { ...r, status: 'executed' as any } : r);
+      setPendingRequests(updatedRequests);
+      
+      const tx = {
+        id: `tx_${Date.now()}`,
+        txHash: result.txHash,
+        explorerUrl: result.explorerUrl,
+        type: 'send' as const,
+        description: `Executed: ${req.amount} ${req.token} to ${req.to.slice(0, 10)}...`,
+        amount: req.amount,
+        token: req.token,
+        status: 'success' as const,
+        timestamp: Date.now(),
+        smartAccountAddress: child.smartAccountAddress
+      };
+      addTransaction(tx);
+      
+      await fetch('/api/family', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          parentAddress: child.parentAddress,
+          familyPin: child.familyPin,
+          childConfig: child,
+          permissions,
+          transactions: [tx, ...transactions],
+          pendingRequests: updatedRequests
+        })
+      });
+      
+      setNotice({ text: `Executed request: Sent ${req.amount} ${req.token}`, type: 'success' });
+      await fetchBalance(child.smartAccountAddress);
+    } catch (err: any) {
+      setNotice({ text: err.message || 'Execution failed', type: 'error' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Poll family config from server to get updated request status/allowance from parent
   useEffect(() => {
     if (!child?.familyPin || !child?.parentAddress) return;
@@ -233,8 +290,33 @@ export default function KidPage() {
             {pendingRequests.length === 0 ? <p className="text-sm text-center py-2" style={{ color: '#52525b' }}>No requests yet.</p> : (
               <div className="space-y-2">{pendingRequests.map(req => (
                 <div key={req.id} className="flex items-center justify-between py-2 last:border-0" style={{ borderBottom: '1px solid #18181b' }}>
-                  <div><div className="text-sm" style={{ color: '#e2e8f0' }}>{req.description}</div><div className="text-[10px] mt-0.5" style={{ color: '#52525b' }}>{new Date(req.timestamp).toLocaleTimeString()}</div></div>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={req.status === 'approved' ? { background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.2)' } : req.status === 'rejected' ? { background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' } : { background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>{req.status === 'approved' ? 'Approved' : req.status === 'rejected' ? 'Rejected' : 'Waiting'}</span>
+                  <div>
+                    <div className="text-sm" style={{ color: '#e2e8f0' }}>{req.description}</div>
+                    <div className="text-[10px] mt-0.5" style={{ color: '#52525b' }}>{new Date(req.timestamp).toLocaleTimeString()}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={
+                      req.status === 'approved'
+                        ? { background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.2)' }
+                        : req.status === 'rejected'
+                        ? { background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }
+                        : req.status === 'executed'
+                        ? { background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)' }
+                        : { background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }
+                    }>
+                      {req.status === 'approved' ? 'Approved' : req.status === 'rejected' ? 'Rejected' : req.status === 'executed' ? 'Executed' : 'Waiting'}
+                    </span>
+                    {req.status === 'approved' && (
+                      <button
+                        onClick={() => handleExecuteRequest(req)}
+                        disabled={submitting}
+                        className="text-[10px] font-semibold px-2 py-1 rounded-md transition-colors"
+                        style={{ background: '#e2e8f0', color: '#0a0a0a' }}
+                      >
+                        {submitting ? 'Executing...' : 'Execute'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}</div>
             )}

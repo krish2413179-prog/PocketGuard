@@ -213,13 +213,41 @@ export default function DashboardPage() {
   const handleApproveRequest = async (req: ApprovalRequest) => {
     if (!child) return;
     try {
-      const perm = permissions.find(p => !p.isRevoked && p.smartAccountAddress === child.smartAccountAddress);
-      if (!perm) throw new Error('No active permission found.');
-      const result = await relayTransaction({ to: req.to || CONTRACTS.WETH, data: '0x', value: parseEther(req.amount).toString(), permissionContext: perm.permissionContext, smartAccountAddress: child.smartAccountAddress, permissionId: perm.permissionId });
       updatePendingRequest(req.id, 'approved');
-      addTransaction({ id: `tx_${Date.now()}`, txHash: result.txHash, explorerUrl: result.explorerUrl, type: 'send', description: `Approved: ${req.amount} ${req.token} to ${req.to.slice(0, 10)}...`, amount: req.amount, token: req.token, status: 'success', timestamp: Date.now(), smartAccountAddress: child.smartAccountAddress });
-      await fetchBalance(child.smartAccountAddress);
-    } catch (err: any) { alert(err.message); }
+      const updatedRequests = pendingRequests.map(r => r.id === req.id ? { ...r, status: 'approved' as const } : r);
+      await fetch('/api/family', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          parentAddress: child.parentAddress,
+          familyPin: child.familyPin,
+          updates: { pendingRequests: updatedRequests }
+        })
+      });
+    } catch (err: any) {
+      alert(err.message || 'Failed to approve request');
+    }
+  };
+
+  const handleRejectRequest = async (req: ApprovalRequest) => {
+    if (!child) return;
+    try {
+      updatePendingRequest(req.id, 'rejected');
+      const updatedRequests = pendingRequests.map(r => r.id === req.id ? { ...r, status: 'rejected' as const } : r);
+      await fetch('/api/family', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          parentAddress: child.parentAddress,
+          familyPin: child.familyPin,
+          updates: { pendingRequests: updatedRequests }
+        })
+      });
+    } catch (err: any) {
+      alert(err.message || 'Failed to reject request');
+    }
   };
 
   const fetchAdvisor = useCallback(async () => {
@@ -335,7 +363,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex gap-2 shrink-0">
                         <Button size="sm" onClick={() => handleApproveRequest(req)}>Approve</Button>
-                        <Button variant="outline" size="sm" onClick={() => updatePendingRequest(req.id, 'rejected')}>Reject</Button>
+                        <Button variant="outline" size="sm" onClick={() => handleRejectRequest(req)}>Reject</Button>
                       </div>
                     </div>
                   ))}
