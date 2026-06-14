@@ -1,6 +1,9 @@
 import { CONTRACTS } from '../contracts/addresses';
+import { createPublicClient, createWalletClient, http, custom } from 'viem';
+import { arbitrumSepolia } from 'viem/chains';
 
-const ONESHOT_RPC_URL = process.env.ONESHOT_RPC_URL || 'https://api.1shotapi.com/v1/rpc';
+// Correct 1Shot public relayer endpoint (no API key needed for testnet)
+const ONESHOT_RPC_URL = process.env.ONESHOT_RPC_URL || 'https://relayer.1shotapi.com/relayers';
 const ONESHOT_API_KEY = process.env.ONESHOT_API_KEY || '';
 
 interface RelayTransactionParams {
@@ -41,9 +44,16 @@ async function oneshotRpc(method: string, params: any[]): Promise<any> {
 
 /**
  * Relay a transaction via 1Shot using EIP-7710 delegation context.
- * Gas is fully sponsored — no ETH needed in the smart account.
+ * For demo permissionContexts (0xdemo_...) falls back to a direct MetaMask send.
  */
 export async function relayTransaction(params: RelayTransactionParams): Promise<RelayResult> {
+  // Demo mode: skip 1Shot and send directly via the connected MetaMask wallet.
+  // This keeps the demo fully functional without a real ERC-7715 session key.
+  const isDemo = params.permissionContext.startsWith('0xdemo_');
+  if (isDemo) {
+    return relayViaMetaMask(params);
+  }
+
   // 1. Get fee data from 1Shot
   let feeData: any;
   try {
@@ -57,9 +67,8 @@ export async function relayTransaction(params: RelayTransactionParams): Promise<
       },
     ]);
   } catch (err) {
-    console.error('1Shot getFeeData failed, using direct Arbitrum relay:', err);
-    // Fallback: submit as a standard sponsored transaction via Arbitrum bundler
-    return relayViaDirectRpc(params);
+    console.error('1Shot getFeeData failed, falling back to MetaMask relay:', err);
+    return relayViaMetaMask(params);
   }
 
   // 2. Send the 7710 transaction with permission context
@@ -108,16 +117,44 @@ export async function relayTransaction(params: RelayTransactionParams): Promise<
 }
 
 /**
- * Fallback: relay via standard Arbitrum Sepolia RPC (for demo/testing without 1Shot).
- * In production, this would use a proper bundler.
+ * Send the transaction directly via MetaMask (browser wallet).
+ * Used for demo permissionContexts and as 1Shot fallback.
+ * The parent's connected EOA sends ETH directly — no gas sponsorship needed for demo.
  */
-async function relayViaDirectRpc(params: RelayTransactionParams): Promise<RelayResult> {
-  // For hackathon demo: simulate a relay by returning a mock pending state
-  // In real implementation, this would use eth_sendRawTransaction with a funded relayer wallet
-  const mockHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+async function relayViaMetaMask(params: RelayTransactionParams): Promise<RelayResult> {
+  if (typeof window === 'undefined' || !window.ethereum) {
+    throw new Error('MetaMask not available. Please connect your wallet and try again.');
+  }
+
+  const accounts: string[] = await window.ethereum.request({ method: 'eth_accounts' });
+  if (!accounts || accounts.length === 0) {
+    throw new Error('No MetaMask account connected. Please connect your wallet first.');
+  }
+
+  const wc = createWalletClient({
+    account: accounts[0] as `0x${string}`,
+    chain: arbitrumSepolia,
+    transport: custom(window.ethereum),
+  });
+
+  const pc = createPublicClient({ chain: arbitrumSepolia, transport: http(CONTRACTS.rpc) });
+
+  const valueWei = params.value && params.value !== '0x0'
+    ? BigInt(params.value)
+    : 0n;
+
+  const hash = await wc.sendTransaction({
+    to: params.to as `0x${string}`,
+    data: (params.data || '0x') as `0x${string}`,
+    value: valueWei,
+  });
+
+  // Wait for on-chain confirmation
+  await pc.waitForTransactionReceipt({ hash });
+
   return {
-    txHash: mockHash,
-    explorerUrl: `${CONTRACTS.explorer}/tx/${mockHash}`,
+    txHash: hash,
+    explorerUrl: `${CONTRACTS.explorer}/tx/${hash}`,
   };
 }
 
