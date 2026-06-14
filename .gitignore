@@ -38,3 +38,6 @@ next-env.d.ts
 # snap build output
 /snap/dist/
 /snap/node_modules/
+
+# local data store files (Vercel KV is used in production)
+/store/*.json

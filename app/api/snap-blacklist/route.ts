@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server';
+import { readFamilyStore } from '../../../lib/db';
 
-/**
- * Public endpoint — returns the current blacklist for the PocketGuard Snap.
- * The Snap fetches this on every transaction to get the parent's live blocked list.
- *
- * In production this would read from a DB. For the hackathon demo it returns
- * the default betting/gambling addresses plus any passed via query param.
- */
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // Default hardcoded betting/gambling addresses (mirrors snap/src/blacklist.ts)
 const DEFAULT_BLACKLIST = [
@@ -15,51 +11,35 @@ const DEFAULT_BLACKLIST = [
   '0x9999999999999999999999999999999999999999', // Generic betting
 ];
 
-// In-memory store for dynamically added addresses (parent dashboard pushes here)
-// In production: use a real database keyed by parent wallet address
-const dynamicBlacklist: Set<string> = new Set();
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Cache-Control': 'no-store',
+};
 
 export async function GET() {
-  const merged = [...new Set([...DEFAULT_BLACKLIST, ...dynamicBlacklist])];
+  // Aggregate blacklists from all family records stored in the persistent store
+  const store = await readFamilyStore();
+  const allBlacklisted: string[] = [];
+  for (const key of Object.keys(store)) {
+    const record = store[key];
+    if (Array.isArray(record.blacklist)) {
+      allBlacklisted.push(...record.blacklist.map((a: string) => a.toLowerCase()));
+    }
+  }
+
+  const merged = [...new Set([...DEFAULT_BLACKLIST, ...allBlacklisted])];
 
   return NextResponse.json(
     { blacklist: merged, count: merged.length },
-    {
-      headers: {
-        // Allow the Snap (running inside MetaMask extension) to fetch this
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST',
-        'Cache-Control': 'no-store',
-      },
-    }
+    { headers: CORS_HEADERS }
   );
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-
-    if (body.action === 'add' && typeof body.address === 'string') {
-      dynamicBlacklist.add(body.address.toLowerCase());
-      return NextResponse.json({ success: true, count: dynamicBlacklist.size });
-    }
-
-    if (body.action === 'remove' && typeof body.address === 'string') {
-      dynamicBlacklist.delete(body.address.toLowerCase());
-      return NextResponse.json({ success: true, count: dynamicBlacklist.size });
-    }
-
-    if (body.action === 'sync' && Array.isArray(body.addresses)) {
-      // Parent dashboard bulk-syncs their full blacklist
-      dynamicBlacklist.clear();
-      body.addresses.forEach((a: string) => dynamicBlacklist.add(a.toLowerCase()));
-      return NextResponse.json({ success: true, count: dynamicBlacklist.size });
-    }
-
-    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
-  }
+  // snap-blacklist POST is now a no-op; the blacklist is derived from the family store.
+  // Kept for backwards compatibility with the Snap.
+  return NextResponse.json({ success: true }, { headers: CORS_HEADERS });
 }
 
 export async function OPTIONS() {

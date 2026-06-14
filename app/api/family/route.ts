@@ -1,39 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as fs from 'fs';
-import * as path from 'path';
+import { readFamilyStore, writeFamilyStore } from '../../../lib/db';
 
-/**
- * Family config store — file-based persistence.
- * Survives server sleep/wake on Render free tier.
- * Data is stored in /tmp/pocketguard-family.json (persists across restarts,
- * reset only on full redeploy).
- */
-
-// Use /tmp on Render (writable), fall back to a stable store/ folder for dev
-// IMPORTANT: Do NOT store inside .next — that folder gets wiped on cache clears.
-const STORE_PATH = process.env.NODE_ENV === 'production'
-  ? '/tmp/pocketguard-family.json'
-  : path.join(process.cwd(), 'store', 'family-store.json');
-
-function readStore(): Record<string, any> {
-  try {
-    if (fs.existsSync(STORE_PATH)) {
-      const raw = fs.readFileSync(STORE_PATH, 'utf8');
-      return JSON.parse(raw);
-    }
-  } catch { /* corrupted file — start fresh */ }
-  return {};
-}
-
-function writeStore(data: Record<string, any>): void {
-  try {
-    const dir = path.dirname(STORE_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf8');
-  } catch (e) {
-    console.error('[family-store] write failed:', e);
-  }
-}
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 function makeKey(parentAddress: string, pin: string): string {
   const combined = `${parentAddress.toLowerCase()}_${pin}`;
@@ -49,7 +18,7 @@ function makeKey(parentAddress: string, pin: string): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const store = readStore();
+    const store = await readFamilyStore();
 
     if (body.action === 'save') {
       const { parentAddress, familyPin, childConfig, permissions, transactions, pendingRequests } = body;
@@ -64,7 +33,7 @@ export async function POST(req: NextRequest) {
         pendingRequests: pendingRequests || store[key]?.pendingRequests || [],
         savedAt: Date.now()
       };
-      writeStore(store);
+      await writeFamilyStore(store);
       return NextResponse.json({ success: true });
     }
 
@@ -73,13 +42,11 @@ export async function POST(req: NextRequest) {
       const key = makeKey(parentAddress, familyPin);
       if (!store[key]) return NextResponse.json({ error: 'Family not found' }, { status: 404 });
       store[key] = { ...store[key], ...updates, updatedAt: Date.now() };
-      writeStore(store);
+      await writeFamilyStore(store);
       return NextResponse.json({ success: true });
     }
 
     // Child uses this to safely append a new approval request server-side.
-    // This avoids the race condition where the parent's auto-save (action:'save')
-    // could overwrite the child's freshly submitted request.
     if (body.action === 'append-request') {
       const { parentAddress, familyPin, request } = body;
       if (!parentAddress || !familyPin || !request) {
@@ -92,14 +59,14 @@ export async function POST(req: NextRequest) {
       if (!existing.find((r: any) => r.id === request.id)) {
         store[key].pendingRequests = [request, ...existing];
         store[key].updatedAt = Date.now();
-        writeStore(store);
+        await writeFamilyStore(store);
       }
       return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Invalid request' }, { status: 400 });
   }
 }
 
@@ -112,7 +79,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'parentAddress and pin are required' }, { status: 400 });
   }
 
-  const store = readStore();
+  const store = await readFamilyStore();
   const key = makeKey(parentAddress, familyPin);
   const config = store[key];
 
