@@ -60,7 +60,10 @@ export default function DashboardPage() {
   // ── Server sync ────────────────────────────────────────────────────────────
   // Every time child config changes, push the latest state to /api/family
   // so the kid can authenticate from any device using parent address + PIN.
-  const syncFamilyToServer = useCallback(async (childData: typeof child, permsData: typeof permissions, pendingReqs: typeof pendingRequests, txs: typeof transactions) => {
+  // NOTE: We deliberately do NOT send pendingRequests here — they are managed
+  // server-side via append-request (child) and update (parent approve/reject).
+  // Sending them here would overwrite requests the child just submitted.
+  const syncFamilyToServer = useCallback(async (childData: typeof child, permsData: typeof permissions, txs: typeof transactions) => {
     if (!childData?.familyPin) return;
     // Use parentAddress from child record, fall back to currently connected wallet
     const parentAddr = childData.parentAddress || wallet.eoaAddress;
@@ -76,18 +79,18 @@ export default function DashboardPage() {
           childConfig: { ...childData, parentAddress: parentAddr },
           permissions: permsData,
           transactions: txs,
-          pendingRequests: pendingReqs,
+          // pendingRequests intentionally omitted — server merges from existing
         }),
       });
     } catch { /* non-critical */ }
   }, [wallet.eoaAddress]);
 
-  // Auto-sync whenever child, permissions, pendingRequests or transactions change
+  // Auto-sync whenever child, permissions, or transactions change
   useEffect(() => {
     if (child?.familyPin && child?.parentAddress) {
-      syncFamilyToServer(child, permissions, pendingRequests, transactions);
+      syncFamilyToServer(child, permissions, transactions);
     }
-  }, [child, permissions, pendingRequests, transactions, syncFamilyToServer]);
+  }, [child, permissions, transactions, syncFamilyToServer]);
 
   // Poll/fetch family config from server to get new pending requests/transactions from kid
   useEffect(() => {

@@ -93,21 +93,23 @@ export default function KidPage() {
     const newRequest: ApprovalRequest = { id: `req_${Date.now()}`, to: spendAddress.trim() || CONTRACTS.WETH, amount: spendAmount, token: spendToken, status: 'pending', description: `Spend ${spendAmount} ${spendToken} at ${spendAddress.trim() ? spendAddress.trim().slice(0, 12) + '...' : 'address'}`, timestamp: Date.now() };
     addPendingRequest(newRequest);
 
-    // Sync the new request directly to the server so the parent dashboard sees it
+    // Use append-request to safely add to server-side queue without risking
+    // the parent's periodic auto-save from overwriting the new request.
     try {
-      const updatedRequests = [newRequest, ...pendingRequests];
-      await fetch('/api/family', {
+      const res = await fetch('/api/family', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'update',
+          action: 'append-request',
           parentAddress: child.parentAddress,
           familyPin: child.familyPin,
-          updates: {
-            pendingRequests: updatedRequests
-          }
+          request: newRequest,
         })
       });
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Server rejected approval request:', err);
+      }
     } catch (err) {
       console.error('Failed to sync pending request to server:', err);
     }

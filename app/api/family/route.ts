@@ -9,10 +9,11 @@ import * as path from 'path';
  * reset only on full redeploy).
  */
 
-// Use /tmp on Render (writable), fall back to local .next folder for dev
+// Use /tmp on Render (writable), fall back to a stable store/ folder for dev
+// IMPORTANT: Do NOT store inside .next — that folder gets wiped on cache clears.
 const STORE_PATH = process.env.NODE_ENV === 'production'
   ? '/tmp/pocketguard-family.json'
-  : path.join(process.cwd(), '.next', 'family-store.json');
+  : path.join(process.cwd(), 'store', 'family-store.json');
 
 function readStore(): Record<string, any> {
   try {
@@ -73,6 +74,26 @@ export async function POST(req: NextRequest) {
       if (!store[key]) return NextResponse.json({ error: 'Family not found' }, { status: 404 });
       store[key] = { ...store[key], ...updates, updatedAt: Date.now() };
       writeStore(store);
+      return NextResponse.json({ success: true });
+    }
+
+    // Child uses this to safely append a new approval request server-side.
+    // This avoids the race condition where the parent's auto-save (action:'save')
+    // could overwrite the child's freshly submitted request.
+    if (body.action === 'append-request') {
+      const { parentAddress, familyPin, request } = body;
+      if (!parentAddress || !familyPin || !request) {
+        return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+      }
+      const key = makeKey(parentAddress, familyPin);
+      if (!store[key]) return NextResponse.json({ error: 'Family not found' }, { status: 404 });
+      const existing: any[] = store[key].pendingRequests || [];
+      // Avoid duplicates
+      if (!existing.find((r: any) => r.id === request.id)) {
+        store[key].pendingRequests = [request, ...existing];
+        store[key].updatedAt = Date.now();
+        writeStore(store);
+      }
       return NextResponse.json({ success: true });
     }
 
