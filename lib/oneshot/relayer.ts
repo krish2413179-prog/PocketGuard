@@ -47,29 +47,16 @@ async function oneshotRpc(method: string, params: any[]): Promise<any> {
  * For demo permissionContexts (0xdemo_...) falls back to a direct MetaMask send.
  */
 export async function relayTransaction(params: RelayTransactionParams): Promise<RelayResult> {
-  // Demo mode: skip 1Shot and send directly via the connected MetaMask wallet.
-  // This keeps the demo fully functional without a real ERC-7715 session key.
-  const isDemo = params.permissionContext.startsWith('0xdemo_');
-  if (isDemo) {
-    return relayViaMetaMask(params);
-  }
-
   // 1. Get fee data from 1Shot
-  let feeData: any;
-  try {
-    feeData = await oneshotRpc('relayer_getFeeData', [
-      {
-        chainId: `0x${CONTRACTS.chainId.toString(16)}`,
-        from: params.smartAccountAddress,
-        to: params.to,
-        data: params.data,
-        value: params.value || '0x0',
-      },
-    ]);
-  } catch (err) {
-    console.error('1Shot getFeeData failed, falling back to MetaMask relay:', err);
-    return relayViaMetaMask(params);
-  }
+  const feeData = await oneshotRpc('relayer_getFeeData', [
+    {
+      chainId: `0x${CONTRACTS.chainId.toString(16)}`,
+      from: params.smartAccountAddress,
+      to: params.to,
+      data: params.data,
+      value: params.value || '0x0',
+    },
+  ]);
 
   // 2. Send the 7710 transaction with permission context
   const txParams: any = {

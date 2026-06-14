@@ -164,8 +164,21 @@ export default function DashboardPage() {
       const capWei = parseEther((newChild.weeklyAllowanceUSD / ethPrice).toFixed(6)).toString();
       const dailyWei = parseEther((newChild.dailyLimitUSD / ethPrice).toFixed(6)).toString();
       const expiry = Math.floor(Date.now() / 1000) + 604800;
-      let permissionContext = `0xdemo_${Date.now().toString(16)}`;
-      try { const r = await window.ethereum.request({ method: 'wallet_grantPermissions', params: [{ chainId: `0x${CONTRACTS.chainId.toString(16)}`, address: sa.address, expiry, signer: { type: 'account', data: { id: wallet.eoaAddress } }, permissions: [{ type: 'native-token-transfer', data: { allowance: capWei }, required: true }] }] }); permissionContext = r?.[0]?.context || permissionContext; } catch { /* demo */ }
+      
+      if (!window.ethereum) throw new Error('MetaMask is not available');
+      const r = await window.ethereum.request({
+        method: 'wallet_grantPermissions',
+        params: [{
+          chainId: `0x${CONTRACTS.chainId.toString(16)}`,
+          address: sa.address,
+          expiry,
+          signer: { type: 'account', data: { id: wallet.eoaAddress } },
+          permissions: [{ type: 'native-token-transfer', data: { allowance: capWei }, required: true }]
+        }]
+      });
+      const permissionContext = r?.[0]?.context;
+      if (!permissionContext) throw new Error('Failed to obtain permission context from MetaMask.');
+
       const newPerm = { permissionId: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, token: '0x0000000000000000000000000000000000000000', tokenSymbol: 'ETH', spendingCapWei: capWei, dailyLimitWei: dailyWei, usedAllowanceWei: '0', expiryTimestamp: expiry, allowedTargets: newChild.whitelist, description: `PocketGuard — ${newChild.name}`, permissionContext, smartAccountAddress: sa.address, createdAt: Date.now(), isRevoked: false };
       addPermission(newPerm);
       // Save to family API — kid can now access from any device using parent address + PIN
@@ -176,11 +189,53 @@ export default function DashboardPage() {
     } catch (err: any) { setError(err.message || 'Failed to create child account'); }
   };
 
-  const handleTogglePause = () => {
+  const handleTogglePause = async () => {
     if (!child) return;
-    const next = !child.isPaused; updateChild({ isPaused: next });
-    if (next) { permissions.forEach(p => { if (!p.isRevoked) revokePermission(p.permissionId); }); }
-    else { const capWei = parseEther((child.weeklyAllowanceUSD / ethPrice).toFixed(6)).toString(); const dailyWei = parseEther((child.dailyLimitUSD / ethPrice).toFixed(6)).toString(); addPermission({ permissionId: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, token: '0x0000000000000000000000000000000000000000', tokenSymbol: 'ETH', spendingCapWei: capWei, dailyLimitWei: dailyWei, usedAllowanceWei: '0', expiryTimestamp: Math.floor(Date.now() / 1000) + 604800, allowedTargets: child.whitelist, description: `PocketGuard — ${child.name}`, permissionContext: `0xdemo_${Date.now().toString(16)}`, smartAccountAddress: child.smartAccountAddress, createdAt: Date.now(), isRevoked: false }); }
+    const next = !child.isPaused;
+    if (next) {
+      updateChild({ isPaused: next });
+      permissions.forEach(p => { if (!p.isRevoked) revokePermission(p.permissionId); });
+    }
+    else {
+      try {
+        if (!window.ethereum) throw new Error('MetaMask is not available');
+        const capWei = parseEther((child.weeklyAllowanceUSD / ethPrice).toFixed(6)).toString();
+        const dailyWei = parseEther((child.dailyLimitUSD / ethPrice).toFixed(6)).toString();
+        const expiry = Math.floor(Date.now() / 1000) + 604800;
+        
+        const r = await window.ethereum.request({
+          method: 'wallet_grantPermissions',
+          params: [{
+            chainId: `0x${CONTRACTS.chainId.toString(16)}`,
+            address: child.smartAccountAddress,
+            expiry,
+            signer: { type: 'account', data: { id: wallet.eoaAddress } },
+            permissions: [{ type: 'native-token-transfer', data: { allowance: capWei }, required: true }]
+          }]
+        });
+        const permissionContext = r?.[0]?.context;
+        if (!permissionContext) throw new Error('Failed to obtain permission context from MetaMask.');
+
+        updateChild({ isPaused: next });
+        addPermission({
+          permissionId: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          token: '0x0000000000000000000000000000000000000000',
+          tokenSymbol: 'ETH',
+          spendingCapWei: capWei,
+          dailyLimitWei: dailyWei,
+          usedAllowanceWei: '0',
+          expiryTimestamp: expiry,
+          allowedTargets: child.whitelist,
+          description: `PocketGuard — ${child.name}`,
+          permissionContext,
+          smartAccountAddress: child.smartAccountAddress,
+          createdAt: Date.now(),
+          isRevoked: false
+        });
+      } catch (err: any) {
+        alert(err.message || 'Failed to unpause child: permission request denied.');
+      }
+    }
   };
 
   const handleFundChild = async () => {

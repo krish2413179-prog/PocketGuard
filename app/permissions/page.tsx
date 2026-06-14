@@ -64,8 +64,19 @@ export default function PermissionsPage() {
     setCreating(true); setError(null);
     try {
       const capWei = parseEther(form.cap).toString(), dailyWei = parseEther(form.daily).toString(), expiry = Math.floor(Date.now() / 1000) + form.duration;
-      let permissionContext = `0xdemo_${Date.now().toString(16)}`;
-      try { if (window.ethereum) { const r = await window.ethereum.request({ method: 'wallet_grantPermissions', params: [{ chainId: `0x${CONTRACTS.chainId.toString(16)}`, address: wallet.smartAccountAddress, expiry, signer: { type: 'account', data: { id: wallet.eoaAddress } }, permissions: [{ type: 'native-token-transfer', data: { allowance: capWei }, required: true }] }] }); permissionContext = r?.[0]?.context || permissionContext; } } catch { /* */ }
+      if (!window.ethereum) throw new Error('MetaMask is not available');
+      const r = await window.ethereum.request({
+        method: 'wallet_grantPermissions',
+        params: [{
+          chainId: `0x${CONTRACTS.chainId.toString(16)}`,
+          address: wallet.smartAccountAddress,
+          expiry,
+          signer: { type: 'account', data: { id: wallet.eoaAddress } },
+          permissions: [{ type: 'native-token-transfer', data: { allowance: capWei }, required: true }]
+        }]
+      });
+      const permissionContext = r?.[0]?.context;
+      if (!permissionContext) throw new Error('Failed to obtain permission context from MetaMask.');
       const tokenInfo = TOKENS.find(t => t.symbol === form.token) || TOKENS[0];
       const targets = form.targets.trim() ? form.targets.split(',').map(t => t.trim()).filter(Boolean) : [];
       const grant: PermissionGrant = { permissionId: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, token: tokenInfo.address, tokenSymbol: form.token, spendingCapWei: capWei, dailyLimitWei: dailyWei, usedAllowanceWei: '0', expiryTimestamp: expiry, allowedTargets: targets, description: form.description, permissionContext, smartAccountAddress: wallet.smartAccountAddress, createdAt: Date.now(), isRevoked: false };
