@@ -1,4 +1,5 @@
 'use client';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAppStore } from '../../store/useAppStore';
@@ -15,7 +16,94 @@ const NAV = [
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { wallet, disconnectWallet, child } = useAppStore();
+  const { wallet, setWallet, disconnectWallet, child } = useAppStore();
+
+  // Auto-connect to MetaMask if already authorized in the browser
+  useEffect(() => {
+    const checkConnectedAccounts = async () => {
+      if (typeof window !== 'undefined' && window.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+          if (accounts && accounts.length > 0) {
+            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            
+            // Switch to Arbitrum Sepolia if it's incorrect
+            if (chainIdHex !== '0x66eee') {
+              try {
+                await window.ethereum.request({
+                  method: 'wallet_switchEthereumChain',
+                  params: [{ chainId: '0x66eee' }]
+                });
+              } catch (e: any) {
+                if (e.code === 4902) {
+                  const { CONTRACTS } = await import('../../lib/contracts/addresses');
+                  await window.ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                      chainId: '0x66eee',
+                      chainName: 'Arbitrum Sepolia',
+                      nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                      rpcUrls: [CONTRACTS.rpc],
+                      blockExplorerUrls: [CONTRACTS.explorer]
+                    }]
+                  });
+                }
+              }
+            }
+            
+            setWallet({
+              isConnected: true,
+              eoaAddress: accounts[0],
+              smartAccountAddress: accounts[0],
+              chainId: 421614
+            });
+          }
+        } catch (err) {
+          console.error('Failed to auto-reconnect wallet:', err);
+        }
+      }
+    };
+
+    checkConnectedAccounts();
+  }, [setWallet]);
+
+  // Listen for MetaMask account and chain changes
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.ethereum) return;
+
+    const handleAccounts = (accounts: string[]) => {
+      if (accounts && accounts.length > 0) {
+        setWallet({
+          isConnected: true,
+          eoaAddress: accounts[0],
+          smartAccountAddress: accounts[0]
+        });
+      } else {
+        // Disconnected
+        setWallet({
+          isConnected: false,
+          eoaAddress: null,
+          smartAccountAddress: null,
+          chainId: null
+        });
+      }
+    };
+
+    const handleChain = (chainIdHex: string) => {
+      const parsedChainId = parseInt(chainIdHex, 16);
+      setWallet({ chainId: parsedChainId });
+    };
+
+    window.ethereum.on('accountsChanged', handleAccounts);
+    window.ethereum.on('chainChanged', handleChain);
+
+    return () => {
+      if (window.ethereum.removeListener) {
+        window.ethereum.removeListener('accountsChanged', handleAccounts);
+        window.ethereum.removeListener('chainChanged', handleChain);
+      }
+    };
+  }, [setWallet]);
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e2e8f0', position: 'relative' }}>
